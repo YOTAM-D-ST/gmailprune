@@ -38,6 +38,7 @@ def main():
     """Shows basic usage of the Gmail API.
     Lists the user's Gmail messages.
     """
+
     creds = None
     # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
@@ -67,31 +68,18 @@ def main():
     else:
         print('Messages:')
         for m in messages:
-            body = service.users().messages().get(userId='me',
-                                                  id=m["id"]).execute()
-            if "parts" in body["payload"]:
-                parts = body["payload"]["parts"]
+            message = service.users().messages().get(userId='me',
+                                                     id=m["id"]).execute()
+            if "parts" in message["payload"]:
+                parts = message["payload"]["parts"]
                 for part in parts:
                     if "filename" in part and part["filename"] != "":
                         print("\n ************************ " + m["id"])
                         print("\"" + part["filename"] + "\"")
-                        print(body["internalDate"])
+                        print(message["internalDate"])
                         GetAttachments(service, "me", m["id"])
                     else:
                         print(".", end=" ")
-
-
-def create_a_path_by_label(message):
-    """
-    create a path according to the message label
-    """
-    if message["labelIds"]:
-        for i in range(len(message["labelIds"])):
-            new_path = ROOT_DIR + message["labelIds"][i]
-            if not os.path.exists(new_path):
-                os.makedirs(new_path)
-    else:
-        print("no labels found")
 
 
 def GetAttachments(service, user_id, msg_id):
@@ -118,7 +106,12 @@ def GetAttachments(service, user_id, msg_id):
                         userId=user_id, messageId=msg_id, id=att_id).execute()
                     data = att['data']
                 file_data = base64.urlsafe_b64decode(data.encode('UTF-8'))
-                path = part['filename']
+                name_with_label = part["filename"]
+                if "labelIds" in message:
+                    for label in message["labelIds"]:
+                        name_with_label += "-" + label
+
+                path = name_with_label
 
                 with open(ATTACHMENTS_DIR + "/" + path, 'wb') as f:
                     f.write(file_data)
