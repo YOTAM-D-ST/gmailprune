@@ -15,23 +15,59 @@
 # [START gmail_quickstart]
 from __future__ import print_function
 
+import argparse
 import base64
+import datetime
 import os.path
-import time
 
+from dateutil.parser import parse
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
+parser = argparse.ArgumentParser(description='Process some values.')
+
+parser.add_argument('--list', metavar='tags', type=list,
+                    help='list of tags')
+
+parser.add_argument('--size', metavar='min_size<GB>', type=float,
+                    help='the minimum size of the attachment to process')
+
+parser.add_argument('--age', metavar='min-age<number of days>', type=int,
+                    help='the youngest email to process')
+
+parser.add_argument('--until', metavar='until<date>',
+                    help='only messages before <date> will be processed')
+
+parser.add_argument('--location', metavar='location', required=True,
+                    help='the location to storage')
+
+parser.add_argument('--account', metavar='account',
+                    help='email account to use')
+
+args = parser.parse_args()
+
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
-TIME_BEFORE = 24 * 60 * 60 * 1000  # TIME IN ms
-MIN_SIZE = 50 * 1024  # 5
-MIN_TIME = time.time() * 1000 - TIME_BEFORE
+
+MIN_SIZE = args.size
+MIN_TIME = args.age
 ROOT_DIR = os.path.dirname(
     os.path.abspath(__file__))  # This is your Project Root
-ATTACHMENTS_DIR = "attachments"
+ATTACHMENTS_DIR = args.location
+LIST_OF_TAGS = args.list
+if args.age and args.until:
+    min_age = datetime.datetime.now() - datetime.timedelta(args.age)
+    MIN_TIME = min(min_age, parse(args.until))
+elif args.age:
+    MIN_TIME = datetime.datetime.now() - datetime.timedelta(args.age)
+    print("using age date is ", MIN_TIME)
+elif args.until:
+    MIN_TIME = parse(args.until)
+    print("using until date is ",MIN_TIME)
+else:
+    print("must specify either ---until or --age")
 
 
 def main():
@@ -60,7 +96,7 @@ def main():
     service = build('gmail', 'v1', credentials=creds)
 
     # Call the Gmail API
-    results = service.users().messages().list(userId='me').execute()
+    results = service.users().messages().list(userId=args.account).execute()
     messages = results["messages"]  # .get('messages', [])
 
     if not messages:
@@ -95,9 +131,11 @@ def GetAttachments(service, user_id, msg_id):
                                              id=msg_id).execute()
 
     for part in message['payload']['parts']:
+        message_until = datetime.datetime.fromtimestamp(
+            (int(message["internalDate"])) / 1000)
         if part['filename']:
             if part['body']['size'] > MIN_SIZE and \
-                    int(message["internalDate"]) < int(MIN_TIME):
+                    message_until < MIN_TIME:
                 if 'data' in part['body']:
                     data = part['body']['data']
                 else:
@@ -112,12 +150,12 @@ def GetAttachments(service, user_id, msg_id):
                         name_with_label += "-" + label
 
                 path = name_with_label
-
+                print(message["internalDate"])
                 with open(ATTACHMENTS_DIR + "/" + path, 'wb') as f:
                     f.write(file_data)
             else:
                 print("not good, size is:", part['body']['size'], "date is:",
-                      message["internalDate"])
+                      message_until, " until is ", MIN_TIME)
 
 
 if __name__ == '__main__':
