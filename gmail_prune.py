@@ -15,10 +15,10 @@
 # [START gmail_quickstart]
 from __future__ import print_function
 
+import os
 import argparse
 import base64
 import datetime
-import os.path
 
 from dateutil.parser import parse
 from google.auth.transport.requests import Request
@@ -28,7 +28,8 @@ from googleapiclient.discovery import build
 
 parser = argparse.ArgumentParser(description='Process some values.')
 
-parser.add_argument('--list', metavar='tags', type=list,
+
+parser.add_argument('--tags', metavar='tags', action='append', nargs='+',
                     help='list of tags')
 
 parser.add_argument('--size', metavar='min_size<GB>', type=float,
@@ -51,30 +52,46 @@ args = parser.parse_args()
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
+
 MIN_SIZE = args.size
 MIN_TIME = args.age
 ROOT_DIR = os.path.dirname(
     os.path.abspath(__file__))  # This is your Project Root
 ATTACHMENTS_DIR = args.location
-LIST_OF_TAGS = args.list
 if args.age and args.until:
     min_age = datetime.datetime.now() - datetime.timedelta(args.age)
     MIN_TIME = min(min_age, parse(args.until))
 elif args.age:
     MIN_TIME = datetime.datetime.now() - datetime.timedelta(args.age)
-    print("using age date is ", MIN_TIME)
+    print("using age, date is ", MIN_TIME)
 elif args.until:
     MIN_TIME = parse(args.until)
-    print("using until date is ",MIN_TIME)
+    print("using until, date is ", MIN_TIME)
 else:
     print("must specify either ---until or --age")
+
+
+def legal_name(str):
+    new_str = ""
+    for ch in str:
+        if ch.isalpha() or ch == '_':
+            new_str += ch
+    return new_str
+
+
+LIST_OF_TAGS = []
+for smallList in args.tags:
+    for part in smallList:
+        list_part = part.split(',')
+        for tag in list_part:
+            LIST_OF_TAGS.append(legal_name(tag))
+
 
 
 def main():
     """Shows basic usage of the Gmail API.
     Lists the user's Gmail messages.
     """
-
     creds = None
     # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
@@ -151,6 +168,11 @@ def GetAttachments(service, user_id, msg_id):
 
                 path = name_with_label
                 print(message["internalDate"])
+                try:
+                    os.makedirs(ATTACHMENTS_DIR + "/" + path)
+                except FileExistsError:
+                    # directory already exists
+                    pass
                 with open(ATTACHMENTS_DIR + "/" + path, 'wb') as f:
                     f.write(file_data)
             else:
