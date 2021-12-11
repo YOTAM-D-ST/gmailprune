@@ -169,7 +169,7 @@ def GetAttachments(service, user_id, msg_id):
                 path = name_with_label
                 print(message["internalDate"])
                 try:
-                    os.makedirs(ATTACHMENTS_DIR + "/" + path)
+                    os.makedirs(path)
                 except FileExistsError:
                     # directory already exists
                     pass
