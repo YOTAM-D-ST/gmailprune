@@ -1,18 +1,4 @@
-# Gmail Python Quickstart
+# Python Gmail Prune
 
-Complete the steps described in the [Gmail Python Quickstart](
-https://developers.google.com/gmail/api/quickstart/python), and in
-about five minutes you'll have a simple Python command-line application that
-makes requests to the Gmail API.
-
-## Install
-
-```
-pip install -r requirements.txt
-```
-
-## Run
-
-```
-python quickstart.py
-```
+My mother's gmail box is overflowing. \
+So I'm writing this utility to prune old attachments.
