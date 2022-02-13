@@ -4,6 +4,7 @@ import os
 import argparse
 import base64
 import datetime
+import pathlib
 
 from dateutil.parser import parse
 from google.auth.transport.requests import Request
@@ -14,6 +15,27 @@ from googleapiclient.discovery import build
 global args
 
 
+def arg_labels_to_ids(service):
+    if not args.labels and not args.labels_exclude:
+        return
+    response = service.users().labels().list(userId="me").execute()
+    label_ids = response["labels"]
+    if args.labels:
+        args.label_ids = {}
+        for label in args.labels:
+            for label_id in label_ids:
+                if label_id["name"] == label:
+                    args.label_ids[label] = label_id["id"]
+                    break
+    if args.labels_exclude:
+        args.label_x_ids = {}
+        for label in args.labels_exclude:
+            for label_id in label_ids:
+                if label_id["name"] == label:
+                    args.label_x_ids[label] = label_id["id"]
+                    break
+
+
 def set_args():
     global args
     parser = argparse.ArgumentParser(description='Process some values.')
@@ -21,8 +43,8 @@ def set_args():
                         help='email account to use')
     parser.add_argument('--location', metavar='location', required=True,
                         help='the location to storage')
-    parser.add_argument('--tags', metavar='tags', action='append', nargs='+',
-                        help='list of tags')
+    parser.add_argument('--labels', metavar='labels', action='append', nargs='+',
+                        help='list of labels')
     parser.add_argument('--size', metavar='min_size', type=int,
                         help='the minimum size of the attachment to process',
                         default=10 * 1024 * 1024)
@@ -31,8 +53,8 @@ def set_args():
                        help='the youngest email to process')
     group.add_argument('--until', metavar='until<date>',
                        help='only messages before <date> will be processed')
-    parser.add_argument('--tags-exclude', metavar='tags-exclude',
-                        help='email account to use')
+    parser.add_argument('--labels-exclude', metavar='labels-exclude', action='append', nargs='+',
+                        help='list of labels to exclude')
     args = parser.parse_args()
     # If modifying these scopes, delete the file token.json.
     now = datetime.datetime.now()
@@ -48,13 +70,19 @@ def set_args():
     else:
         args.MIN_TIME = datetime.datetime(now.year - 1, now.month, now.day, now.hour, now.minute)
         print("using default, date is ", args.MIN_TIME)
+    args.labels = flatten(args.labels)
+    args.labels_exclude = flatten(args.labels_exclude)
 
 
 def parse_size(size):
     units = {"B": 1, "K": 2 ** 10, "M": 2 ** 20, "G": 2 ** 30, "T": 2 ** 40}
     sp = size.split()
     number, unit = [print(string) for string in sp]
-    return int(float(number)*units[unit.upper()])
+    return int(float(number) * units[unit.upper()])
+
+
+def flatten(t):
+    return [item for sublist in t for item in sublist]
 
 
 def legal_name(name):
@@ -81,6 +109,8 @@ def main():
     creds = get_creds()
 
     service = build('gmail', 'v1', credentials=creds)
+
+    arg_labels_to_ids(service)
 
     # Call the Gmail API
     results = service.users().messages().list(userId=args.account, q="has:attachment").execute()
@@ -138,15 +168,28 @@ def process_message(message, service):
                 (int(message["internalDate"])) / 1000)
             if message_until > args.MIN_TIME:
                 continue
-
-            get_attachments(service, part, "me", message["id"])
+            is_excluded = False
+            if args.labels_exclude:
+                for l_id in message["labelIds"]:
+                    if l_id in args.label_x_ids.values():
+                        is_excluded = True
+                        break
+            if is_excluded:
+                continue
+            save_folder = None
+            if args.label_ids:
+                for l_name, l_id in args.label_ids.items():
+                    if l_id in message["labelIds"]:
+                        save_folder = l_name
+            get_attachments(service, save_folder, part, "me", message["id"])
     return
 
 
-def get_attachments(service, part, user_id, msg_id):
+def get_attachments(service, folder, part, user_id, msg_id):
     """Get and store attachment from Message with given id.
 
     :param service: Authorized Gmail API service instance.
+    :param folder
     :param part
     :param user_id: User's email address. The special value "me" can be used to
      indicate the authenticated user.
@@ -161,17 +204,16 @@ def get_attachments(service, part, user_id, msg_id):
             userId=user_id, messageId=msg_id, id=att_id).execute()
         data = att['data']
     file_data = base64.urlsafe_b64decode(data.encode('UTF-8'))
-    path = part["filename"]
-    print(path)
-    try:
-        os.makedirs(path)
-    except FileExistsError:
-        # directory already exists
-        pass
-    with open(args.location + "/" + path, 'wb') as f:
+    path = pathlib.PurePath(args.location)
+    if folder:
+        path = path / folder
+    os.makedirs(path, exist_ok=True)
+    file = path / part["filename"]
+    print(file)
+    with open(file, 'wb') as f:
         f.write(file_data)
 
 
 if __name__ == '__main__':
     main()
-# [END gmail_quickstart]
+
