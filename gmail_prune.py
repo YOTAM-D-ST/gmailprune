@@ -1,10 +1,11 @@
 # from __future__ import print_function
-
 import os
 import argparse
 import base64
 import datetime
 import pathlib
+import urllib.parse
+from typing import NamedTuple
 
 from dateutil.parser import parse
 from google.auth.transport.requests import Request
@@ -15,17 +16,31 @@ from googleapiclient.discovery import build
 global args
 
 
+def sanitize_label(label):
+    bad_chars = " %:/,.\\[]<>*?"
+    sanitized = ''
+    for c in label:
+        if c in bad_chars:
+            sanitized += urllib.parse.quote(c, safe='')
+        else:
+            sanitized += c
+    return sanitized
+
+
 def arg_labels_to_ids(service):
-    if not args.labels and not args.labels_exclude:
+    if not args.orig_labels and not args.labels_exclude:
         return
     response = service.users().labels().list(userId="me").execute()
     label_ids = response["labels"]
-    if args.labels:
-        args.label_ids = {}
-        for label in args.labels:
+    if args.orig_labels:
+        args.labels = {}
+        for label in args.orig_labels:
             for label_id in label_ids:
+                label_info = NamedTuple('Label', [('id', str), ('sanitized', str)])
                 if label_id["name"] == label:
-                    args.label_ids[label] = label_id["id"]
+                    label_info.id = label_id["id"]
+                    label_info.sanitized = sanitize_label(label)
+                    args.labels[label] = label_info
                     break
     if args.labels_exclude:
         args.label_x_ids = {}
@@ -43,7 +58,7 @@ def set_args():
                         help='email account to use')
     parser.add_argument('--location', metavar='location', required=True,
                         help='the location to storage')
-    parser.add_argument('--labels', metavar='labels', action='append', nargs='+',
+    parser.add_argument('--labels', dest='orig_labels', metavar='labels', action='extend', nargs='+',
                         help='list of labels')
     parser.add_argument('--size', metavar='min_size', type=int,
                         help='the minimum size of the attachment to process',
@@ -70,7 +85,7 @@ def set_args():
     else:
         args.MIN_TIME = datetime.datetime(now.year - 1, now.month, now.day, now.hour, now.minute)
         print("using default, date is ", args.MIN_TIME)
-    args.labels = flatten(args.labels)
+    # args.labels = flatten(args.labels)
     args.labels_exclude = flatten(args.labels_exclude)
 
 
@@ -177,10 +192,14 @@ def process_message(message, service):
             if is_excluded:
                 continue
             save_folder = None
-            if args.label_ids:
-                for l_name, l_id in args.label_ids.items():
-                    if l_id in message["labelIds"]:
-                        save_folder = l_name
+            if args.labels:
+                for label_info in args.labels.values():
+                    for l_id in message["labelIds"]:
+                        if label_info.id == l_id:
+                            save_folder = label_info.sanitized
+                            break
+                    if save_folder:
+                        break
             get_attachments(service, save_folder, part, "me", message["id"])
     return
 
@@ -216,4 +235,3 @@ def get_attachments(service, folder, part, user_id, msg_id):
 
 if __name__ == '__main__':
     main()
-
